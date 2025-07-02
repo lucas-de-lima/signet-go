@@ -27,6 +27,18 @@ var (
 	ErrTokenRevoked        = errors.New("token revogado (sid presente na lista de revogação)")
 )
 
+// Razões padronizadas para métricas de validação
+const (
+	ReasonSuccess             = "success"
+	ReasonInvalidSignature    = "invalid_signature"
+	ReasonTokenExpired        = "token_expired"
+	ReasonAudienceMismatch    = "audience_mismatch"
+	ReasonInvalidPayload      = "invalid_payload"
+	ReasonTokenNotYetValid    = "token_not_yet_valid"
+	ReasonMissingRequiredRole = "missing_required_role"
+	ReasonTokenRevoked        = "token_revoked"
+)
+
 // PayloadBuilder implementa a API fluente para construção de payloads Signet.
 // Segurança por padrão: iat = agora, exp = agora + 15min.
 // Todos os métodos retornam o builder para encadeamento.
@@ -143,6 +155,15 @@ func (b *PayloadBuilder) Sign(privateKey ed25519.PrivateKey) ([]byte, error) {
 	return tokenBytes, nil
 }
 
+// MetricsRecorder define um contrato para registrar métricas de validação de tokens.
+// As implementações podem usar este hook para integrar com sistemas como Prometheus, OpenTelemetry, etc.
+type MetricsRecorder interface {
+	// IncrementTokenValidation é chamada para cada operação de Parse.
+	// O parâmetro 'success' é true se a validação foi bem-sucedida.
+	// Em caso de falha, 'failureReason' contém uma string curta e padronizada (use as constantes Reason*).
+	IncrementTokenValidation(ctx context.Context, success bool, failureReason string)
+}
+
 // ValidationOption define opções de validação para a função Parse.
 // Permite customizar o comportamento de validação (ex: pular expiração para testes).
 type ValidationOption func(*validationConfig)
@@ -153,6 +174,7 @@ type validationConfig struct {
 	expectedAudience    string
 	requiredRoles       []string
 	revocationChecker   func([]byte) bool
+	metricsRecorder     MetricsRecorder
 }
 
 // WithSkipExpirationCheck permite pular a verificação de expiração (útil para testes).
@@ -206,6 +228,13 @@ func WithRevocationCheck(checker func(sid []byte) bool) ValidationOption {
 	}
 }
 
+// WithMetricsRecorder registra um implementador de MetricsRecorder para capturar métricas de validação.
+func WithMetricsRecorder(recorder MetricsRecorder) ValidationOption {
+	return func(c *validationConfig) {
+		c.metricsRecorder = recorder
+	}
+}
+
 // Parse deserializa e valida rigorosamente um SignetToken.
 // Fluxo seguro e obrigatório:
 // 1. Deserializa o token (SignetToken)
@@ -219,42 +248,50 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 	for _, option := range options {
 		option(config)
 	}
+	// Função auxiliar para registrar métrica antes de retornar
+	recordMetricAndReturn := func(ctx context.Context, success bool, reason string, payload *signetv1.SignetPayload, err error) (*signetv1.SignetPayload, error) {
+		if config.metricsRecorder != nil {
+			config.metricsRecorder.IncrementTokenValidation(ctx, success, reason)
+		}
+		return payload, err
+	}
+	ctx := context.Background()
 	// 1. Deserializar o token
 	var token signetv1.SignetToken
 	if err := proto.Unmarshal(tokenBytes, &token); err != nil {
-		return nil, fmt.Errorf("falha ao deserializar SignetToken: %w", err)
+		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, fmt.Errorf("falha ao deserializar SignetToken: %w", err))
 	}
 	// 2. Verificar se os campos obrigatórios estão presentes
 	if token.Payload == nil || token.Signature == nil {
-		return nil, ErrInvalidPayload
+		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, ErrInvalidPayload)
 	}
 	// 3. Verificar a assinatura ANTES de deserializar o payload
 	if err := core.Verify(publicKey, token.Payload, token.Signature); err != nil {
 		if errors.Is(err, core.ErrVerificationFailed) {
-			return nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", ErrInvalidSignature)
+			return recordMetricAndReturn(ctx, false, ReasonInvalidSignature, nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", ErrInvalidSignature))
 		}
-		return nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", err)
+		return recordMetricAndReturn(ctx, false, ReasonInvalidSignature, nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", err))
 	}
 	// 4. Deserializar o payload
 	var payload signetv1.SignetPayload
 	if err := proto.Unmarshal(token.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("falha ao deserializar SignetPayload: %w", err)
+		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, fmt.Errorf("falha ao deserializar SignetPayload: %w", err))
 	}
 	// 5. Validações temporais (a menos que explicitamente puladas)
 	now := time.Now().Unix()
 	if !config.skipExpirationCheck {
 		if payload.Exp <= now {
-			return nil, ErrTokenExpired
+			return recordMetricAndReturn(ctx, false, ReasonTokenExpired, nil, ErrTokenExpired)
 		}
 	}
 	if !config.skipIssuedAtCheck {
 		if payload.Iat > now {
-			return nil, ErrTokenNotYetValid
+			return recordMetricAndReturn(ctx, false, ReasonTokenNotYetValid, nil, ErrTokenNotYetValid)
 		}
 	}
 	// 6. Validação de audiência declarativa (WithAudience)
 	if config.expectedAudience != "" && payload.Aud != config.expectedAudience {
-		return nil, ErrAudienceMismatch
+		return recordMetricAndReturn(ctx, false, ReasonAudienceMismatch, nil, ErrAudienceMismatch)
 	}
 	// 7. Validação de papéis declarativa (RequireRole)
 	if len(config.requiredRoles) > 0 {
@@ -264,17 +301,18 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 		}
 		for _, required := range config.requiredRoles {
 			if _, ok := rolesMap[required]; !ok {
-				return nil, ErrMissingRequiredRole
+				return recordMetricAndReturn(ctx, false, ReasonMissingRequiredRole, nil, ErrMissingRequiredRole)
 			}
 		}
 	}
 	// 8. Validação de revogação declarativa (WithRevocationCheck)
 	if config.revocationChecker != nil && len(payload.Sid) > 0 {
 		if config.revocationChecker(payload.Sid) {
-			return nil, ErrTokenRevoked
+			return recordMetricAndReturn(ctx, false, ReasonTokenRevoked, nil, ErrTokenRevoked)
 		}
 	}
-	return &payload, nil
+	// 9. Incrementar métricas de validação (sucesso)
+	return recordMetricAndReturn(ctx, true, ReasonSuccess, &payload, nil)
 }
 
 // contextKey é uma chave privada para evitar colisão no contexto
