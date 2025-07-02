@@ -2,7 +2,6 @@ package grpcinterceptor
 
 import (
 	"context"
-	"crypto/ed25519"
 	"log"
 
 	"github.com/lucas-de-lima/signet-go/signet"
@@ -13,7 +12,11 @@ import (
 )
 
 // GRPCAuthInterceptor retorna um UnaryServerInterceptor que valida tokens Signet e injeta o payload no contexto.
-func GRPCAuthInterceptor(publicKey ed25519.PublicKey, options ...signet.ValidationOption) grpc.UnaryServerInterceptor {
+//
+// - Suporta rotação de chaves e múltiplos emissores via KeyResolverFunc:
+// - O KeyResolverFunc é chamado com o contexto e o 'kid' extraído do token.
+// - Permite integração com cache, JWKS, banco, etc.
+func GRPCAuthInterceptor(keyResolver signet.KeyResolverFunc, options ...signet.ValidationOption) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -31,8 +34,8 @@ func GRPCAuthInterceptor(publicKey ed25519.PublicKey, options ...signet.Validati
 		}
 		tokenBytes := []byte(tokens[0])
 
-		// Valida o token usando signet.Parse
-		payload, err := signet.Parse(tokenBytes, publicKey, options...)
+		// Valida o token usando signet.Parse com resolução dinâmica de chave
+		payload, err := signet.Parse(ctx, tokenBytes, keyResolver, options...)
 		if err != nil {
 			// Mapeia erros sentinela para status gRPC apropriados
 			switch err {

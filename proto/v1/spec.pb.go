@@ -51,7 +51,10 @@ type SignetPayload struct {
 	CustomClaims map[string]string `protobuf:"bytes,6,rep,name=custom_claims,json=customClaims,proto3" json:"custom_claims,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Uma lista de strings para representar papéis (roles) ou escopos (scopes)
 	// associados ao sujeito.
-	Roles         []string `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
+	Roles []string `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
+	// (kid) Key ID: Um identificador opcional para a chave usada para assinar o token.
+	// Ajuda o validador a selecionar a chave pública correta para verificação.
+	Kid           string `protobuf:"bytes,8,opt,name=kid,proto3" json:"kid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -135,6 +138,13 @@ func (x *SignetPayload) GetRoles() []string {
 	return nil
 }
 
+func (x *SignetPayload) GetKid() string {
+	if x != nil {
+		return x.Kid
+	}
+	return ""
+}
+
 // SignetToken é a estrutura final que é serializada para bytes e transportada.
 // Ela encapsula o payload e a assinatura, garantindo a integridade dos dados.
 type SignetToken struct {
@@ -197,7 +207,7 @@ var File_proto_v1_spec_proto protoreflect.FileDescriptor
 
 const file_proto_v1_spec_proto_rawDesc = "" +
 	"\n" +
-	"\x13proto/v1/spec.proto\x12\tsignet.v1\"\x91\x02\n" +
+	"\x13proto/v1/spec.proto\x12\tsignet.v1\"\xa3\x02\n" +
 	"\rSignetPayload\x12\x10\n" +
 	"\x03exp\x18\x01 \x01(\x03R\x03exp\x12\x10\n" +
 	"\x03iat\x18\x02 \x01(\x03R\x03iat\x12\x10\n" +
@@ -205,7 +215,8 @@ const file_proto_v1_spec_proto_rawDesc = "" +
 	"\x03aud\x18\x04 \x01(\tR\x03aud\x12\x10\n" +
 	"\x03sid\x18\x05 \x01(\fR\x03sid\x12O\n" +
 	"\rcustom_claims\x18\x06 \x03(\v2*.signet.v1.SignetPayload.CustomClaimsEntryR\fcustomClaims\x12\x14\n" +
-	"\x05roles\x18\a \x03(\tR\x05roles\x1a?\n" +
+	"\x05roles\x18\a \x03(\tR\x05roles\x12\x10\n" +
+	"\x03kid\x18\b \x01(\tR\x03kid\x1a?\n" +
 	"\x11CustomClaimsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"E\n" +

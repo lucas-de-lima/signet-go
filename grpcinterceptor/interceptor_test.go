@@ -24,8 +24,12 @@ func handlerFake(ctx context.Context, req interface{}) (interface{}, error) {
 
 func TestGRPCAuthInterceptor_Success(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	tokenBytes, _ := signet.NewPayload().WithSubject("user-1").Sign(priv)
-	interceptor := GRPCAuthInterceptor(pub)
+	tokenBytes, _ := signet.NewPayload().WithSubject("user-1").WithKeyID("v1").Sign(priv)
+	// KeyResolverFunc que retorna a chave correta para qualquer kid
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	interceptor := GRPCAuthInterceptor(keyResolver)
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", string(tokenBytes)))
 	resp, err := interceptor(ctx, nil, nil, handlerFake)
 	if err != nil {
@@ -39,12 +43,15 @@ func TestGRPCAuthInterceptor_Success(t *testing.T) {
 
 func TestGRPCAuthInterceptor_Fails(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
 
 	// Gerar tokens para cenários
 	iat := time.Now().Unix() - 100
 	exp := iat + 1 // expira há ~99 segundos
-	expiredToken, _ := signet.NewPayload().WithIssuedAt(iat).WithExpiration(exp).Sign(priv)
-	wrongRoleToken, _ := signet.NewPayload().WithRole("user").Sign(priv)
+	expiredToken, _ := signet.NewPayload().WithIssuedAt(iat).WithExpiration(exp).WithKeyID("v1").Sign(priv)
+	wrongRoleToken, _ := signet.NewPayload().WithRole("user").WithKeyID("v1").Sign(priv)
 
 	testCases := []struct {
 		name         string
@@ -60,7 +67,7 @@ func TestGRPCAuthInterceptor_Fails(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			interceptor := GRPCAuthInterceptor(pub, tc.options...)
+			interceptor := GRPCAuthInterceptor(keyResolver, tc.options...)
 			_, err := interceptor(tc.ctx, nil, nil, handlerFake)
 			if status.Code(err) != tc.expectedCode {
 				t.Errorf("esperava código %v, mas obteve %v", tc.expectedCode, status.Code(err))

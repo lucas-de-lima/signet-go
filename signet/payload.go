@@ -105,6 +105,12 @@ func (b *PayloadBuilder) WithExpiration(exp int64) *PayloadBuilder {
 	return b
 }
 
+// WithKeyID define o Key ID (kid) do payload, usado para rotação e seleção de chave pública.
+func (b *PayloadBuilder) WithKeyID(kid string) *PayloadBuilder {
+	b.payload.Kid = kid
+	return b
+}
+
 // Build valida as regras de negócio e retorna o payload pronto para uso.
 // Valida se exp > iat e se ambos são positivos.
 // Retorna erro se as regras forem violadas.
@@ -236,46 +242,52 @@ func WithMetricsRecorder(recorder MetricsRecorder) ValidationOption {
 }
 
 // Parse deserializa e valida rigorosamente um SignetToken.
+//
 // Fluxo seguro e obrigatório:
 // 1. Deserializa o token (SignetToken)
-// 2. Verifica a assinatura ANTES de processar o payload
-// 3. Deserializa o payload
-// 4. Valida expiração, iat e audiência (por padrão)
-// 5. Retorna o payload válido ou erro sentinela específico
-func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...ValidationOption) (*signetv1.SignetPayload, error) {
-	// Configurar opções de validação
+// 2. Deserializa o payload para extrair os claims e o campo 'kid' (Key ID)
+// 3. Resolve a chave pública correta via KeyResolverFunc, usando o contexto e o kid
+// 4. Verifica a assinatura ANTES de processar o payload (garante integridade)
+// 5. Valida expiração, iat, audiência, papéis, revogação, etc.
+// 6. Emite métricas de sucesso/falha, se configurado
+// 7. Retorna o payload válido ou erro sentinela específico
+//
+// Este fluxo garante máxima segurança, rastreabilidade e suporte a rotação de chaves e múltiplos emissores.
+func Parse(ctx context.Context, tokenBytes []byte, keyResolver KeyResolverFunc, options ...ValidationOption) (*signetv1.SignetPayload, error) {
 	config := &validationConfig{}
 	for _, option := range options {
 		option(config)
 	}
-	// Função auxiliar para registrar métrica antes de retornar
 	recordMetricAndReturn := func(ctx context.Context, success bool, reason string, payload *signetv1.SignetPayload, err error) (*signetv1.SignetPayload, error) {
 		if config.metricsRecorder != nil {
 			config.metricsRecorder.IncrementTokenValidation(ctx, success, reason)
 		}
 		return payload, err
 	}
-	ctx := context.Background()
 	// 1. Deserializar o token
 	var token signetv1.SignetToken
 	if err := proto.Unmarshal(tokenBytes, &token); err != nil {
 		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, fmt.Errorf("falha ao deserializar SignetToken: %w", err))
 	}
-	// 2. Verificar se os campos obrigatórios estão presentes
 	if token.Payload == nil || token.Signature == nil {
 		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, ErrInvalidPayload)
 	}
-	// 3. Verificar a assinatura ANTES de deserializar o payload
-	if err := core.Verify(publicKey, token.Payload, token.Signature); err != nil {
+	// 2. Deserializar o payload para extrair o kid
+	var payload signetv1.SignetPayload
+	if err := proto.Unmarshal(token.Payload, &payload); err != nil {
+		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, fmt.Errorf("falha ao deserializar SignetPayload: %w", err))
+	}
+	// 3. Resolver a chave pública via keyResolver
+	pubKey, err := keyResolver(ctx, payload.Kid)
+	if err != nil {
+		return recordMetricAndReturn(ctx, false, ReasonInvalidSignature, nil, fmt.Errorf("falha ao resolver chave pública para kid '%s': %w", payload.Kid, err))
+	}
+	// 4. Verificar a assinatura
+	if err := core.Verify(pubKey, token.Payload, token.Signature); err != nil {
 		if errors.Is(err, core.ErrVerificationFailed) {
 			return recordMetricAndReturn(ctx, false, ReasonInvalidSignature, nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", ErrInvalidSignature))
 		}
 		return recordMetricAndReturn(ctx, false, ReasonInvalidSignature, nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", err))
-	}
-	// 4. Deserializar o payload
-	var payload signetv1.SignetPayload
-	if err := proto.Unmarshal(token.Payload, &payload); err != nil {
-		return recordMetricAndReturn(ctx, false, ReasonInvalidPayload, nil, fmt.Errorf("falha ao deserializar SignetPayload: %w", err))
 	}
 	// 5. Validações temporais (a menos que explicitamente puladas)
 	now := time.Now().Unix()
@@ -289,11 +301,9 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 			return recordMetricAndReturn(ctx, false, ReasonTokenNotYetValid, nil, ErrTokenNotYetValid)
 		}
 	}
-	// 6. Validação de audiência declarativa (WithAudience)
 	if config.expectedAudience != "" && payload.Aud != config.expectedAudience {
 		return recordMetricAndReturn(ctx, false, ReasonAudienceMismatch, nil, ErrAudienceMismatch)
 	}
-	// 7. Validação de papéis declarativa (RequireRole)
 	if len(config.requiredRoles) > 0 {
 		rolesMap := make(map[string]struct{}, len(payload.Roles))
 		for _, r := range payload.Roles {
@@ -305,13 +315,11 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 			}
 		}
 	}
-	// 8. Validação de revogação declarativa (WithRevocationCheck)
 	if config.revocationChecker != nil && len(payload.Sid) > 0 {
 		if config.revocationChecker(payload.Sid) {
 			return recordMetricAndReturn(ctx, false, ReasonTokenRevoked, nil, ErrTokenRevoked)
 		}
 	}
-	// 9. Incrementar métricas de validação (sucesso)
 	return recordMetricAndReturn(ctx, true, ReasonSuccess, &payload, nil)
 }
 
@@ -333,3 +341,7 @@ func PayloadFromContext(ctx context.Context) (*signetv1.SignetPayload, bool) {
 	payload, ok := v.(*signetv1.SignetPayload)
 	return payload, ok
 }
+
+// KeyResolverFunc define a assinatura para funções que resolvem uma chave pública
+// com base no contexto e no kid do token.
+type KeyResolverFunc func(ctx context.Context, kid string) (ed25519.PublicKey, error)

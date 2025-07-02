@@ -1,6 +1,7 @@
 package signet
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"testing"
@@ -66,12 +67,10 @@ func TestPayloadBuilderInvalidTimestamps(t *testing.T) {
 
 // Testa assinatura e validação round-trip (fluxo completo)
 func TestSignAndParse_RoundTrip(t *testing.T) {
-	// Gera par de chaves Ed25519
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("erro ao gerar chave: %v", err)
 	}
-	// Cria payload completo
 	builder := NewPayload().
 		WithSubject("user-abc").
 		WithAudience("api-x").
@@ -84,17 +83,17 @@ func TestSignAndParse_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao construir payload: %v", err)
 	}
-	// Assina o payload
 	tokenBytes, err := builder.Sign(priv)
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	// Valida o token
-	parsed, err := Parse(tokenBytes, pub)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	parsed, err := Parse(context.Background(), tokenBytes, keyResolver)
 	if err != nil {
 		t.Fatalf("erro ao validar token: %v", err)
 	}
-	// Verifica equivalência dos campos principais
 	if parsed.Sub != pl.Sub || parsed.Aud != pl.Aud || parsed.Iat != pl.Iat || parsed.Exp != pl.Exp {
 		t.Error("payload retornado não bate com o original")
 	}
@@ -113,13 +112,15 @@ func TestSignAndParse_RoundTrip(t *testing.T) {
 func TestParse_ExpiredToken(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	agora := time.Now().Unix()
-	// exp < agora, mas exp > iat
 	payload := NewPayload().WithIssuedAt(agora - 20).WithExpiration(agora - 10)
 	tokenBytes, err := payload.Sign(priv)
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	_, err = Parse(tokenBytes, pub)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	_, err = Parse(context.Background(), tokenBytes, keyResolver)
 	if !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("esperava ErrTokenExpired, obteve: %v", err)
 	}
@@ -129,13 +130,15 @@ func TestParse_ExpiredToken(t *testing.T) {
 func TestParse_IatNoFuturo(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	agora := time.Now().Unix()
-	// iat > agora, exp > iat
 	payload := NewPayload().WithIssuedAt(agora + 3600).WithExpiration(agora + 3700)
 	tokenBytes, err := payload.Sign(priv)
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	_, err = Parse(tokenBytes, pub)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	_, err = Parse(context.Background(), tokenBytes, keyResolver)
 	if !errors.Is(err, ErrTokenNotYetValid) {
 		t.Errorf("esperava ErrTokenNotYetValid, obteve: %v", err)
 	}
@@ -149,9 +152,11 @@ func TestParse_AssinaturaInvalida(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	// Corrompe a assinatura
 	tokenBytes[len(tokenBytes)-1] ^= 0xFF
-	_, err = Parse(tokenBytes, pub)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	_, err = Parse(context.Background(), tokenBytes, keyResolver)
 	if !errors.Is(err, ErrInvalidSignature) {
 		t.Errorf("esperava ErrInvalidSignature, obteve: %v", err)
 	}
@@ -165,7 +170,10 @@ func TestParse_AudienceMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	_, err = Parse(tokenBytes, pub, WithExpectedAudience("servico-b"))
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
+	_, err = Parse(context.Background(), tokenBytes, keyResolver, WithExpectedAudience("servico-b"))
 	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
 	}
@@ -179,13 +187,16 @@ func TestParse_WithAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
 	// Sucesso: audiência correta
-	_, err = Parse(tokenBytes, pub, WithAudience("servico-a"))
+	_, err = Parse(context.Background(), tokenBytes, keyResolver, WithAudience("servico-a"))
 	if err != nil {
 		t.Errorf("não deveria falhar para audiência correta: %v", err)
 	}
 	// Falha: audiência incorreta
-	_, err = Parse(tokenBytes, pub, WithAudience("servico-b"))
+	_, err = Parse(context.Background(), tokenBytes, keyResolver, WithAudience("servico-b"))
 	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
 	}
@@ -195,7 +206,7 @@ func TestParse_WithAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
-	_, err = Parse(tokenBytes, pub, WithAudience("servico-x"))
+	_, err = Parse(context.Background(), tokenBytes, keyResolver, WithAudience("servico-x"))
 	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch para aud ausente, obteve: %v", err)
 	}
@@ -206,6 +217,9 @@ func TestParse_RequireRole(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	payload := NewPayload().WithRole("admin").WithRole("auditor")
 	tokenBytes, _ := payload.Sign(priv)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
 
 	testCases := []struct {
 		name          string
@@ -222,7 +236,7 @@ func TestParse_RequireRole(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Parse(tokenBytes, pub, tc.options...)
+			_, err := Parse(context.Background(), tokenBytes, keyResolver, tc.options...)
 			if !errors.Is(err, tc.expectedError) {
 				t.Errorf("esperava erro '%v', mas obteve '%v'", tc.expectedError, err)
 			}
@@ -238,6 +252,9 @@ func TestParse_WithRevocationCheck(t *testing.T) {
 	tokenBytes, _ := payload.Sign(priv)
 	payloadStateless := NewPayload()
 	tokenBytesStateless, _ := payloadStateless.Sign(priv)
+	keyResolver := func(ctx context.Context, kid string) (ed25519.PublicKey, error) {
+		return pub, nil
+	}
 
 	testCases := []struct {
 		name          string
@@ -252,7 +269,7 @@ func TestParse_WithRevocationCheck(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Parse(tc.token, pub, WithRevocationCheck(tc.checker))
+			_, err := Parse(context.Background(), tc.token, keyResolver, WithRevocationCheck(tc.checker))
 			if !errors.Is(err, tc.expectedError) {
 				t.Errorf("esperava erro '%v', mas obteve '%v'", tc.expectedError, err)
 			}

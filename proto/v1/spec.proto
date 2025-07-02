@@ -48,6 +48,10 @@ message SignetPayload {
   // Uma lista de strings para representar papéis (roles) ou escopos (scopes)
   // associados ao sujeito.
   repeated string roles = 7;
+
+  // (kid) Key ID: Um identificador opcional para a chave usada para assinar o token.
+  // Ajuda o validador a selecionar a chave pública correta para verificação.
+  string kid = 8;
 }
 
 // SignetToken é a estrutura final que é serializada para bytes e transportada.
