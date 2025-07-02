@@ -1,6 +1,7 @@
 package signet
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"time"
@@ -270,4 +271,23 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 		}
 	}
 	return &payload, nil
+}
+
+// contextKey é uma chave privada para evitar colisão no contexto
+// Não exportada para garantir isolamento
+var contextKey = struct{}{}
+
+// InjectPayloadIntoContext injeta o payload validado no contexto
+func InjectPayloadIntoContext(ctx context.Context, payload *signetv1.SignetPayload) context.Context {
+	return context.WithValue(ctx, contextKey, payload)
+}
+
+// PayloadFromContext extrai o payload do contexto, se presente
+func PayloadFromContext(ctx context.Context) (*signetv1.SignetPayload, bool) {
+	v := ctx.Value(contextKey)
+	if v == nil {
+		return nil, false
+	}
+	payload, ok := v.(*signetv1.SignetPayload)
+	return payload, ok
 }
