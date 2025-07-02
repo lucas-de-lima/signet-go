@@ -3,6 +3,7 @@ package grpcinterceptor
 import (
 	"context"
 	"crypto/ed25519"
+	"log"
 
 	"github.com/lucas-de-lima/signet-go/signet"
 	"google.golang.org/grpc"
@@ -40,7 +41,9 @@ func GRPCAuthInterceptor(publicKey ed25519.PublicKey, options ...signet.Validati
 			case signet.ErrTokenExpired, signet.ErrAudienceMismatch, signet.ErrMissingRequiredRole, signet.ErrTokenRevoked:
 				return nil, status.Error(codes.PermissionDenied, "token não autorizado: "+err.Error())
 			default:
-				return nil, status.Error(codes.Unauthenticated, "falha de autenticação: "+err.Error())
+				// Logar o erro inesperado no servidor para observabilidade.
+				log.Printf("ERRO: erro de autenticação inesperado no interceptor Signet: %v", err)
+				return nil, status.Error(codes.Unauthenticated, "falha de autenticação interna")
 			}
 		}
 

@@ -37,47 +37,34 @@ func TestGRPCAuthInterceptor_Success(t *testing.T) {
 	}
 }
 
-func TestGRPCAuthInterceptor_TokenAusente(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
-	interceptor := GRPCAuthInterceptor(pub)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs())
-	_, err := interceptor(ctx, nil, nil, handlerFake)
-	if status.Code(err) != codes.Unauthenticated {
-		t.Errorf("esperava Unauthenticated para token ausente, obteve: %v", err)
-	}
-}
-
-func TestGRPCAuthInterceptor_TokenInvalido(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(nil)
-	interceptor := GRPCAuthInterceptor(pub)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", "corrompido"))
-	_, err := interceptor(ctx, nil, nil, handlerFake)
-	if status.Code(err) != codes.Unauthenticated {
-		t.Errorf("esperava Unauthenticated para token inválido, obteve: %v", err)
-	}
-}
-
-func TestGRPCAuthInterceptor_TokenExpirado(t *testing.T) {
+func TestGRPCAuthInterceptor_Falhas(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	// Definir iat e exp no passado, com exp > iat, mas exp < agora
+
+	// Gerar tokens para cenários
 	iat := time.Now().Unix() - 100
 	exp := iat + 1 // expira há ~99 segundos
-	tokenBytes, _ := signet.NewPayload().WithIssuedAt(iat).WithExpiration(exp).Sign(priv)
-	interceptor := GRPCAuthInterceptor(pub)
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", string(tokenBytes)))
-	_, err := interceptor(ctx, nil, nil, handlerFake)
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("esperava PermissionDenied para token expirado, obteve: %v", err)
-	}
-}
+	expiredToken, _ := signet.NewPayload().WithIssuedAt(iat).WithExpiration(exp).Sign(priv)
+	wrongRoleToken, _ := signet.NewPayload().WithRole("user").Sign(priv)
 
-func TestGRPCAuthInterceptor_PermissaoNegada(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(nil)
-	tokenBytes, _ := signet.NewPayload().WithRole("user").Sign(priv)
-	interceptor := GRPCAuthInterceptor(pub, signet.RequireRole("admin"))
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", string(tokenBytes)))
-	_, err := interceptor(ctx, nil, nil, handlerFake)
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("esperava PermissionDenied para role ausente, obteve: %v", err)
+	testCases := []struct {
+		name         string
+		ctx          context.Context
+		options      []signet.ValidationOption
+		expectedCode codes.Code
+	}{
+		{"Token ausente", metadata.NewIncomingContext(context.Background(), metadata.Pairs()), nil, codes.Unauthenticated},
+		{"Token corrompido", metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", "corrompido")), nil, codes.Unauthenticated},
+		{"Token expirado", metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", string(expiredToken))), nil, codes.PermissionDenied},
+		{"Role incorreto", metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization-bin", string(wrongRoleToken))), []signet.ValidationOption{signet.RequireRole("admin")}, codes.PermissionDenied},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			interceptor := GRPCAuthInterceptor(pub, tc.options...)
+			_, err := interceptor(tc.ctx, nil, nil, handlerFake)
+			if status.Code(err) != tc.expectedCode {
+				t.Errorf("esperava código %v, mas obteve %v", tc.expectedCode, status.Code(err))
+			}
+		})
 	}
 }
