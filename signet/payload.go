@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -117,17 +118,17 @@ func (b *PayloadBuilder) Sign(privateKey ed25519.PrivateKey) ([]byte, error) {
 	// 1. Construir e validar o payload
 	payload, err := b.Build()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("falha ao construir payload: %w", err)
 	}
 	// 2. Serializar o payload para bytes canônicos (protobuf)
 	payloadBytes, err := proto.Marshal(payload)
 	if err != nil {
-		return nil, ErrInvalidPayload
+		return nil, fmt.Errorf("falha ao serializar payload para protobuf: %w", err)
 	}
 	// 3. Assinar os bytes do payload usando Ed25519
 	signature, err := core.Sign(privateKey, payloadBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("falha ao assinar payload no núcleo criptográfico: %w", err)
 	}
 	// 4. Construir o SignetToken final
 	token := &signetv1.SignetToken{
@@ -137,7 +138,7 @@ func (b *PayloadBuilder) Sign(privateKey ed25519.PrivateKey) ([]byte, error) {
 	// 5. Serializar o token final
 	tokenBytes, err := proto.Marshal(token)
 	if err != nil {
-		return nil, ErrInvalidPayload
+		return nil, fmt.Errorf("falha ao serializar SignetToken para protobuf: %w", err)
 	}
 	return tokenBytes, nil
 }
@@ -221,7 +222,7 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 	// 1. Deserializar o token
 	var token signetv1.SignetToken
 	if err := proto.Unmarshal(tokenBytes, &token); err != nil {
-		return nil, ErrInvalidPayload
+		return nil, fmt.Errorf("falha ao deserializar SignetToken: %w", err)
 	}
 	// 2. Verificar se os campos obrigatórios estão presentes
 	if token.Payload == nil || token.Signature == nil {
@@ -229,12 +230,15 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 	}
 	// 3. Verificar a assinatura ANTES de deserializar o payload
 	if err := core.Verify(publicKey, token.Payload, token.Signature); err != nil {
-		return nil, ErrInvalidSignature
+		if errors.Is(err, core.ErrVerificationFailed) {
+			return nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", ErrInvalidSignature)
+		}
+		return nil, fmt.Errorf("falha na verificação criptográfica do núcleo: %w", err)
 	}
 	// 4. Deserializar o payload
 	var payload signetv1.SignetPayload
 	if err := proto.Unmarshal(token.Payload, &payload); err != nil {
-		return nil, ErrInvalidPayload
+		return nil, fmt.Errorf("falha ao deserializar SignetPayload: %w", err)
 	}
 	// 5. Validações temporais (a menos que explicitamente puladas)
 	now := time.Now().Unix()

@@ -120,7 +120,7 @@ func TestParse_ExpiredToken(t *testing.T) {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
 	_, err = Parse(tokenBytes, pub)
-	if err != ErrTokenExpired {
+	if !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("esperava ErrTokenExpired, obteve: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestParse_IatNoFuturo(t *testing.T) {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
 	_, err = Parse(tokenBytes, pub)
-	if err != ErrTokenNotYetValid {
+	if !errors.Is(err, ErrTokenNotYetValid) {
 		t.Errorf("esperava ErrTokenNotYetValid, obteve: %v", err)
 	}
 }
@@ -152,7 +152,7 @@ func TestParse_AssinaturaInvalida(t *testing.T) {
 	// Corrompe a assinatura
 	tokenBytes[len(tokenBytes)-1] ^= 0xFF
 	_, err = Parse(tokenBytes, pub)
-	if err != ErrInvalidSignature {
+	if !errors.Is(err, ErrInvalidSignature) {
 		t.Errorf("esperava ErrInvalidSignature, obteve: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestParse_AudienceMismatch(t *testing.T) {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
 	_, err = Parse(tokenBytes, pub, WithExpectedAudience("servico-b"))
-	if err != ErrAudienceMismatch {
+	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
 	}
 }
@@ -186,7 +186,7 @@ func TestParse_WithAudience(t *testing.T) {
 	}
 	// Falha: audiência incorreta
 	_, err = Parse(tokenBytes, pub, WithAudience("servico-b"))
-	if err != ErrAudienceMismatch {
+	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
 	}
 	// Falha: claim aud ausente
@@ -196,7 +196,7 @@ func TestParse_WithAudience(t *testing.T) {
 		t.Fatalf("erro ao assinar: %v", err)
 	}
 	_, err = Parse(tokenBytes, pub, WithAudience("servico-x"))
-	if err != ErrAudienceMismatch {
+	if !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("esperava ErrAudienceMismatch para aud ausente, obteve: %v", err)
 	}
 }
