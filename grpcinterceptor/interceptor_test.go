@@ -37,7 +37,7 @@ func TestGRPCAuthInterceptor_Success(t *testing.T) {
 	}
 }
 
-func TestGRPCAuthInterceptor_Falhas(t *testing.T) {
+func TestGRPCAuthInterceptor_Fails(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 
 	// Gerar tokens para cenários
