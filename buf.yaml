@@ -1,0 +1,8 @@
+version: v1
+name: buf.build/lucas-de-lima/signet-go
+lint:
+  use:
+    - DEFAULT
+breaking:
+  use:
+    - FILE 

@@ -13,9 +13,9 @@ var (
 	ErrVerificationFailed = errors.New("verificação da assinatura falhou")
 )
 
-// sign gera uma assinatura Ed25519 para os dados fornecidos usando a chave privada.
+// Sign gera uma assinatura Ed25519 para os dados fornecidos usando a chave privada.
 // Retorna a assinatura ou um erro descritivo em caso de falha.
-func sign(privateKey ed25519.PrivateKey, data []byte) ([]byte, error) {
+func Sign(privateKey ed25519.PrivateKey, data []byte) ([]byte, error) {
 	if privateKey == nil || len(privateKey) != ed25519.PrivateKeySize {
 		return nil, ErrInvalidPrivateKey
 	}
@@ -26,9 +26,9 @@ func sign(privateKey ed25519.PrivateKey, data []byte) ([]byte, error) {
 	return sig, nil
 }
 
-// verify verifica se a assinatura é válida para os dados e chave pública fornecidos.
+// Verify verifica se a assinatura é válida para os dados e chave pública fornecidos.
 // Retorna nil se válido, ou um erro descritivo caso contrário.
-func verify(publicKey ed25519.PublicKey, data, signature []byte) error {
+func Verify(publicKey ed25519.PublicKey, data, signature []byte) error {
 	if publicKey == nil || len(publicKey) != ed25519.PublicKeySize {
 		return ErrInvalidPublicKey
 	}

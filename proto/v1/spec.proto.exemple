@@ -1,0 +1,67 @@
+// Sintaxe do Protocol Buffers a ser utilizada.
+syntax = "proto3";
+
+// O namespace do pacote para evitar conflitos de nomes.
+// Ajuda na geração de código em linguagens como Go e Java.
+package signet.v1;
+
+// Opção para a geração de código Go. Define o caminho do import.
+option go_package = "github.com/signet/spec/go/v1;signetv1";
+
+// SignetPayload define o conjunto de claims (reivindicações) que constituem
+// a identidade da aplicação e os metadados do token.
+message SignetPayload {
+  // --- Claims Mandatórios (RFC 7519 terminologia como referência) ---
+
+  // (exp) Expiration Time: O tempo, em segundos no formato Unix Timestamp,
+  // após o qual o token NÃO DEVE ser aceito para processamento.
+  // A validação deste campo é obrigatória.
+  int64 exp = 1;
+
+  // (iat) Issued At: O tempo, em segundos no formato Unix Timestamp,
+  // em que o token foi emitido. Pode ser usado para determinar a idade do token.
+  // A validação deste campo é obrigatória.
+  int64 iat = 2;
+
+  // --- Claims Recomendados ---
+
+  // (sub) Subject: O principal que é o sujeito do token. Geralmente,
+  // representa o ID do usuário ou do serviço. Sua interpretação é
+  // específica para a aplicação.
+  string sub = 3;
+
+  // (aud) Audience: O(s) destinatário(s) para o(s) qual(is) o token se destina.
+  // O validador DEVE verificar se ele se identifica como parte desta audiência.
+  // Se a audiência não corresponder, o token DEVE ser rejeitado.
+  string aud = 4;
+
+  // --- Claims para o Perfil STATEFUL ---
+
+  // (sid) Session ID: Um identificador único para o token, usado para
+  // possibilitar a revogação. REQUERIDO para o perfil STATEFUL.
+  // O formato recomendado é um ULID ou UUIDv7 de 16 bytes para garantir
+  // unicidade e ordenação.
+  bytes sid = 5;
+
+  // --- Claims Opcionais ---
+
+  // Um mapa para claims customizados de natureza simples (chave-valor).
+  // Útil para adicionar contexto específico da aplicação sem alterar o schema.
+  map<string, string> custom_claims = 6;
+
+  // Uma lista de strings para representar papéis (roles) ou escopos (scopes)
+  // associados ao sujeito.
+  repeated string roles = 7;
+}
+
+// SignetToken é a estrutura final que é serializada para bytes e transportada.
+// Ela encapsula o payload e a assinatura, garantindo a integridade dos dados.
+message SignetToken {
+  // O payload serializado da mensagem SignetPayload.
+  // Este campo contém a informação de identidade real.
+  bytes payload = 1;
+
+  // A assinatura digital dos bytes do campo 'payload'.
+  // O algoritmo utilizado é definido pela especificação (Ed25519 para a v1.0).
+  bytes signature = 2;
+}
