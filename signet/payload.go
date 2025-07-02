@@ -13,14 +13,16 @@ import (
 
 // Sentinel errors para validação e segurança
 var (
-	ErrTokenExpired      = errors.New("token expirado")
-	ErrTokenNotYetValid  = errors.New("token com iat no futuro")
-	ErrInvalidSignature  = errors.New("assinatura inválida")
-	ErrInvalidPayload    = errors.New("payload inválido")
-	ErrInvalidPrivateKey = errors.New("chave privada inválida")
-	ErrInvalidPublicKey  = errors.New("chave pública inválida")
-	ErrInvalidExpIat     = errors.New("exp deve ser maior que iat")
-	ErrAudienceMismatch  = errors.New("audiência do token não corresponde à esperada")
+	ErrTokenExpired        = errors.New("token expirado")
+	ErrTokenNotYetValid    = errors.New("token com iat no futuro")
+	ErrInvalidSignature    = errors.New("assinatura inválida")
+	ErrInvalidPayload      = errors.New("payload inválido")
+	ErrInvalidPrivateKey   = errors.New("chave privada inválida")
+	ErrInvalidPublicKey    = errors.New("chave pública inválida")
+	ErrInvalidExpIat       = errors.New("exp deve ser maior que iat")
+	ErrAudienceMismatch    = errors.New("audiência do token não corresponde à esperada")
+	ErrMissingRequiredRole = errors.New("payload não possui o(s) papel(is) requerido(s)")
+	ErrTokenRevoked        = errors.New("token revogado (sid presente na lista de revogação)")
 )
 
 // PayloadBuilder implementa a API fluente para construção de payloads Signet.
@@ -147,6 +149,8 @@ type validationConfig struct {
 	skipExpirationCheck bool
 	skipIssuedAtCheck   bool
 	expectedAudience    string
+	requiredRoles       []string
+	revocationChecker   func([]byte) bool
 }
 
 // WithSkipExpirationCheck permite pular a verificação de expiração (útil para testes).
@@ -167,6 +171,36 @@ func WithSkipIssuedAtCheck() ValidationOption {
 func WithExpectedAudience(audience string) ValidationOption {
 	return func(c *validationConfig) {
 		c.expectedAudience = audience
+	}
+}
+
+// WithAudience exige que o claim aud do payload seja igual ao fornecido.
+func WithAudience(audience string) ValidationOption {
+	return func(c *validationConfig) {
+		c.expectedAudience = audience
+	}
+}
+
+// RequireRole exige que o payload contenha o papel fornecido.
+// Pode ser chamado múltiplas vezes para exigir múltiplos papéis.
+func RequireRole(role string) ValidationOption {
+	return func(c *validationConfig) {
+		c.requiredRoles = append(c.requiredRoles, role)
+	}
+}
+
+// RequireRoles exige que o payload contenha todos os papéis fornecidos.
+func RequireRoles(roles ...string) ValidationOption {
+	return func(c *validationConfig) {
+		c.requiredRoles = append(c.requiredRoles, roles...)
+	}
+}
+
+// WithRevocationCheck ativa a validação STATEFUL, usando a função checker fornecida.
+// checker deve retornar true se o sid estiver revogado.
+func WithRevocationCheck(checker func(sid []byte) bool) ValidationOption {
+	return func(c *validationConfig) {
+		c.revocationChecker = checker
 	}
 }
 
@@ -213,9 +247,27 @@ func Parse(tokenBytes []byte, publicKey ed25519.PublicKey, options ...Validation
 			return nil, ErrTokenNotYetValid
 		}
 	}
-	// 6. Validação de audiência (se especificada)
+	// 6. Validação de audiência declarativa (WithAudience)
 	if config.expectedAudience != "" && payload.Aud != config.expectedAudience {
 		return nil, ErrAudienceMismatch
+	}
+	// 7. Validação de papéis declarativa (RequireRole)
+	if len(config.requiredRoles) > 0 {
+		rolesMap := make(map[string]struct{}, len(payload.Roles))
+		for _, r := range payload.Roles {
+			rolesMap[r] = struct{}{}
+		}
+		for _, required := range config.requiredRoles {
+			if _, ok := rolesMap[required]; !ok {
+				return nil, ErrMissingRequiredRole
+			}
+		}
+	}
+	// 8. Validação de revogação declarativa (WithRevocationCheck)
+	if config.revocationChecker != nil && len(payload.Sid) > 0 {
+		if config.revocationChecker(payload.Sid) {
+			return nil, ErrTokenRevoked
+		}
 	}
 	return &payload, nil
 }

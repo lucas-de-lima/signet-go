@@ -2,6 +2,7 @@ package signet
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"testing"
 	"time"
 )
@@ -167,5 +168,94 @@ func TestParse_AudienceMismatch(t *testing.T) {
 	_, err = Parse(tokenBytes, pub, WithExpectedAudience("servico-b"))
 	if err != ErrAudienceMismatch {
 		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
+	}
+}
+
+// Testa validação declarativa de audiência (WithAudience)
+func TestParse_WithAudience(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	payload := NewPayload().WithAudience("servico-a")
+	tokenBytes, err := payload.Sign(priv)
+	if err != nil {
+		t.Fatalf("erro ao assinar: %v", err)
+	}
+	// Sucesso: audiência correta
+	_, err = Parse(tokenBytes, pub, WithAudience("servico-a"))
+	if err != nil {
+		t.Errorf("não deveria falhar para audiência correta: %v", err)
+	}
+	// Falha: audiência incorreta
+	_, err = Parse(tokenBytes, pub, WithAudience("servico-b"))
+	if err != ErrAudienceMismatch {
+		t.Errorf("esperava ErrAudienceMismatch, obteve: %v", err)
+	}
+	// Falha: claim aud ausente
+	payloadSemAud := NewPayload()
+	tokenBytes, err = payloadSemAud.Sign(priv)
+	if err != nil {
+		t.Fatalf("erro ao assinar: %v", err)
+	}
+	_, err = Parse(tokenBytes, pub, WithAudience("servico-x"))
+	if err != ErrAudienceMismatch {
+		t.Errorf("esperava ErrAudienceMismatch para aud ausente, obteve: %v", err)
+	}
+}
+
+// Testa validação declarativa de papéis (RequireRole/RequireRoles) usando table-driven
+func TestParse_RequireRole(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	payload := NewPayload().WithRole("admin").WithRole("auditor")
+	tokenBytes, _ := payload.Sign(priv)
+
+	testCases := []struct {
+		name          string
+		options       []ValidationOption
+		expectedError error
+	}{
+		{"Sucesso: papel único presente", []ValidationOption{RequireRole("admin")}, nil},
+		{"Sucesso: múltiplos papéis presentes (RequireRole)", []ValidationOption{RequireRole("admin"), RequireRole("auditor")}, nil},
+		{"Sucesso: múltiplos papéis presentes (RequireRoles)", []ValidationOption{RequireRoles("admin", "auditor")}, nil},
+		{"Falha: papel ausente", []ValidationOption{RequireRole("user")}, ErrMissingRequiredRole},
+		{"Falha: um papel presente, um ausente", []ValidationOption{RequireRole("admin"), RequireRole("user")}, ErrMissingRequiredRole},
+		{"Falha: múltiplos papéis ausentes (RequireRoles)", []ValidationOption{RequireRoles("user", "auditor", "admin", "root")}, ErrMissingRequiredRole},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tokenBytes, pub, tc.options...)
+			if !errors.Is(err, tc.expectedError) {
+				t.Errorf("esperava erro '%v', mas obteve '%v'", tc.expectedError, err)
+			}
+		})
+	}
+}
+
+// Testa validação declarativa de revogação (WithRevocationCheck) usando table-driven
+func TestParse_WithRevocationCheck(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	sid := []byte("sid-123")
+	payload := NewPayload().WithSessionID(sid)
+	tokenBytes, _ := payload.Sign(priv)
+	payloadStateless := NewPayload()
+	tokenBytesStateless, _ := payloadStateless.Sign(priv)
+
+	testCases := []struct {
+		name          string
+		token         []byte
+		checker       func([]byte) bool
+		expectedError error
+	}{
+		{"Sucesso: sid não revogado", tokenBytes, func(_ []byte) bool { return false }, nil},
+		{"Falha: sid revogado", tokenBytes, func(s []byte) bool { return string(s) == "sid-123" }, ErrTokenRevoked},
+		{"Sucesso: token STATELESS ignora checker", tokenBytesStateless, func(_ []byte) bool { return true }, nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.token, pub, WithRevocationCheck(tc.checker))
+			if !errors.Is(err, tc.expectedError) {
+				t.Errorf("esperava erro '%v', mas obteve '%v'", tc.expectedError, err)
+			}
+		})
 	}
 }
