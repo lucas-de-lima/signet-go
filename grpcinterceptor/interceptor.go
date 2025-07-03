@@ -11,11 +11,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GRPCAuthInterceptor retorna um UnaryServerInterceptor que valida tokens Signet e injeta o payload no contexto.
+// GRPCAuthInterceptor retorna um grpc.UnaryServerInterceptor que protege endpoints gRPC validando tokens Signet.
 //
-// - Suporta rotação de chaves e múltiplos emissores via KeyResolverFunc:
-// - O KeyResolverFunc é chamado com o contexto e o 'kid' extraído do token.
-// - Permite integração com cache, JWKS, banco, etc.
+// O interceptor extrai o token do header de metadados 'authorization-bin',
+// valida usando signet.Parse com KeyResolverFunc e opções fornecidas,
+// e, em caso de sucesso, injeta o payload validado no contexto da requisição.
+//
+// Em caso de falha, retorna um status gRPC apropriado:
+// - codes.Unauthenticated: para tokens ausentes, malformados ou com assinatura inválida.
+// - codes.PermissionDenied: para falhas de validação de claims (expirado, audiência, etc.).
+//
+// Exemplo de uso:
+//
+//	server := grpc.NewServer(
+//	    grpc.UnaryInterceptor(
+//	        grpcinterceptor.GRPCAuthInterceptor(keyResolver, signet.WithAudience("api-backend")),
+//	    ),
+//	)
 func GRPCAuthInterceptor(keyResolver signet.KeyResolverFunc, options ...signet.ValidationOption) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
