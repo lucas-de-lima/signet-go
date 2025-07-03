@@ -80,6 +80,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## Links
 
-- [Especificação Signet](SPECIFICATION-v1.0.md)
+- [Especificação Signet](https://github.com/lucas-de-lima/signet-spec)
 - [Documentação GoDoc](GODOC-REFERENCE.md)
 - [Exemplos de Produção](examples/) 

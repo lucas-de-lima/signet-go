@@ -66,7 +66,7 @@ Se você descobrir uma vulnerabilidade, siga o processo de reporte acima.
 ## 📚 Recursos de Segurança
 
 ### Documentação
-- [Especificação Signet](SPECIFICATION-v1.0.md): Padrão de segurança
+- [Especificação Signet](https://github.com/lucas-de-lima/signet-spec): Padrão de segurança
 - [GoDoc Reference](GODOC-REFERENCE.md): Documentação da API
 - [Exemplos de Produção](examples/): Implementações seguras
 

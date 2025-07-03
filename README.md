@@ -139,9 +139,19 @@ payload, err := signet.Parse(ctx, tokenBytes, keyResolver,
 )
 ```
 
+## 📋 Sobre o Projeto
+
+**signet-go** é a **implementação de referência oficial** da [Especificação Signet v1.0](https://github.com/lucas-de-lima/signet-spec). Esta implementação foi validada e serve como padrão de conformidade para outras implementações da especificação.
+
+### 🔗 Relacionamento com signet-spec
+
+- **Especificação**: [signet-spec](https://github.com/lucas-de-lima/signet-spec) - Documento técnico e padrão
+- **Implementação**: signet-go - Código de referência em Go
+- **Status**: Ambos os projetos estão em v1.0 estável
+
 ## Próximos Passos
 
-- **📖 [Especificação Signet](SPECIFICATION-v1.0.md)**: Para entender a filosofia e os princípios por trás do projeto
+- **📖 [Especificação Signet](https://github.com/lucas-de-lima/signet-spec)**: Para entender a filosofia e os princípios por trás do projeto
 - **📚 [Documentação GoDoc](GODOC-REFERENCE.md)**: Para uma referência completa da API
 - **🔧 [Exemplos de Produção](/examples)**: Para exemplos práticos, incluindo KeyResolver com cache e integração com métricas
 

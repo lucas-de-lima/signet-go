@@ -89,7 +89,7 @@ Todos os exemplos são **auto-contidos** e podem ser facilmente adaptados:
 
 - **[README Principal](../README.md)**: Visão geral do projeto
 - **[GoDoc Reference](../GODOC-REFERENCE.md)**: Documentação da API
-- **[Especificação Signet](../SPECIFICATION-v1.0.md)**: Padrão técnico
+- **[Especificação Signet](https://github.com/lucas-de-lima/signet-spec)**: Padrão técnico
 
 ---
 
