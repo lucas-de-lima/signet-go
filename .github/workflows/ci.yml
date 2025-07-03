@@ -35,5 +35,27 @@ jobs:
       - name: Instalar dependências
         run: go mod tidy
 
+      - name: Verificar build
+        run: go build ./...
+
       - name: Rodar testes
-        run: go test ./... -v 
+        run: go test ./... -v
+
+      - name: Rodar testes com race detection
+        run: go test -race ./... -v
+
+      - name: Verificar formatação
+        run: go fmt ./...
+
+      - name: Verificar com go vet
+        run: go vet ./...
+
+      - name: Verificar cobertura de testes
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Upload coverage para Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella 

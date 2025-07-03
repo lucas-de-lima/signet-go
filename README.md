@@ -1,25 +1,36 @@
-Signet for Go (signet-go)
-signet-go é a implementação de referência em Go para a especificação Signet, um padrão moderno para cargas de segurança de aplicação. Ele fornece uma alternativa segura, performática e nativa a tokens baseados em texto, otimizada para ecossistemas de alta performance como gRPC.
+# Signet for Go (signet-go)
 
-Porquê Signet?
+[![Go Reference](https://pkg.go.dev/badge/github.com/lucas-de-lima/signet-go.svg)](https://pkg.go.dev/github.com/lucas-de-lima/signet-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lucas-de-lima/signet-go)](https://goreportcard.com/report/github.com/lucas-de-lima/signet-go)
+[![CI Status](https://github.com/lucas-de-lima/signet-go/workflows/CI/badge.svg)](https://github.com/lucas-de-lima/signet-go/actions)
+[![Test Coverage](https://codecov.io/gh/lucas-de-lima/signet-go/branch/main/graph/badge.svg)](https://codecov.io/gh/lucas-de-lima/signet-go)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://golang.org)
+
+**signet-go** é a implementação de referência em Go para a especificação Signet, um padrão moderno para cargas de segurança de aplicação. Ele fornece uma alternativa segura, performática e nativa a tokens baseados em texto, otimizada para ecossistemas de alta performance como gRPC.
+
+## Porquê Signet?
+
 Em um mundo de microsserviços, a segurança e a performance da comunicação são fundamentais. Enquanto o JWT foi uma ferramenta útil para a web baseada em JSON, ele introduz uma sobrecarga desnecessária e uma superfície de risco em ambientes binários.
 
 O Signet foi projetado desde o primeiro dia para este novo paradigma, oferecendo:
 
-Segurança por Design: Usa criptografia moderna (Ed25519) por padrão. A validação temporal e de integridade é obrigatória, não opcional.
+- **Segurança por Design**: Usa criptografia moderna (Ed25519) por padrão. A validação temporal e de integridade é obrigatória, não opcional.
+- **Performance Inerente**: Utiliza Protocol Buffers para uma serialização binária extremamente rápida e compacta, eliminando o overhead do JSON e Base64.
+- **Clareza Operacional**: Com uma API fluente, tratamento de erros robusto e ferramentas de observabilidade, o signet-go foi feito para ser usado com confiança em produção.
+- **Pronto para o Mundo Real**: Suporte nativo para rotação de chaves (KeyResolver), revogação de tokens (perfil STATEFUL) e integração plug-and-play com gRPC.
 
-Performance Inerente: Utiliza Protocol Buffers para uma serialização binária extremamente rápida e compacta, eliminando o overhead do JSON e Base64.
+## Instalação
 
-Clareza Operacional: Com uma API fluente, tratamento de erros robusto e ferramentas de observabilidade, o signet-go foi feito para ser usado com confiança em produção.
+```bash
+go get github.com/lucas-de-lima/signet-go
+```
 
-Pronto para o Mundo Real: Suporte nativo para rotação de chaves (KeyResolver), revogação de tokens (perfil STATEFUL) e integração plug-and-play com gRPC.
+## Início Rápido (Quick Start)
 
-Instalação
-go get github.com/signet/signet-go
-
-Início Rápido (Quick Start)
 Este exemplo leva você do zero a um token validado em menos de um minuto.
 
+```go
 package main
 
 import (
@@ -28,7 +39,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/signet/signet-go/signet"
+	"github.com/lucas-de-lima/signet-go/signet"
 )
 
 func main() {
@@ -70,22 +81,29 @@ func main() {
 
 	fmt.Printf("Token validado com sucesso para o sujeito: %s\n", payload.GetSub())
 }
+```
 
-Funcionalidades Avançadas
-O signet-go oferece um controle granular sobre a validação através de Opções Funcionais.
+## Funcionalidades Avançadas
 
-Validando Claims Específicos
+O signet-go oferece um controle granular sobre a validação através de **Opções Funcionais**.
+
+### Validando Claims Específicos
+
 Você pode exigir que um token tenha uma audiência e papéis específicos.
 
+```go
 payload, err := signet.Parse(ctx, tokenBytes, keyResolver,
     signet.WithAudience("billing-service"), // Exige que 'aud' seja "billing-service"
     signet.RequireRole("user"),             // Exige que o papel "user" esteja presente
 )
+```
 
-Protegendo um Servidor gRPC
+### Protegendo um Servidor gRPC
+
 Proteger todos os seus endpoints gRPC é tão simples quanto adicionar o interceptor na criação do servidor.
 
-import "github.com/signet/signet-go/grpcinterceptor"
+```go
+import "github.com/lucas-de-lima/signet-go/grpcinterceptor"
 
 // ... seu keyResolver ...
 
@@ -96,10 +114,13 @@ server := grpc.NewServer(
         ),
     ),
 )
+```
 
-Revogação de Tokens (Perfil STATEFUL)
+### Revogação de Tokens (Perfil STATEFUL)
+
 Para tokens que precisam ser revogados antes de expirarem, use o perfil STATEFUL.
 
+```go
 // Emissor: Crie um token com um ID de sessão único.
 sid := []byte("session-xyz-789")
 tokenBytes, _ := signet.NewPayload().
@@ -116,10 +137,27 @@ revocationChecker := func(sidToCheck []byte) bool {
 payload, err := signet.Parse(ctx, tokenBytes, keyResolver,
     signet.WithRevocationCheck(revocationChecker),
 )
+```
 
-Próximos Passos
-Para entender a filosofia e os princípios por trás do projeto, leia a Especificação Signet.
+## Próximos Passos
 
-Para uma referência completa da API, visite a Documentação GoDoc.
+- **📖 [Especificação Signet](SPECIFICATION-v1.0.md)**: Para entender a filosofia e os princípios por trás do projeto
+- **📚 [Documentação GoDoc](GODOC-REFERENCE.md)**: Para uma referência completa da API
+- **🔧 [Exemplos de Produção](/examples)**: Para exemplos práticos, incluindo KeyResolver com cache e integração com métricas
 
-Para exemplos de produção, incluindo KeyResolver com cache e integração com métricas, explore o diretório /examples.
+## 👨‍💻 Autor
+
+**Lucas de Lima**
+- 📧 Email: dev.lucasdelima@gmail.com
+- 💼 LinkedIn: [dev-lucasdelima](https://www.linkedin.com/in/dev-lucasdelima/)
+- 🚀 Software Engineer | Backend, Full Stack and Mobile Development
+
+Para mais informações sobre o autor e contribuidores, veja [AUTHORS.md](AUTHORS.md).
+
+## 🤝 Contribuição
+
+Contribuições são bem-vindas! Por favor, leia o [guia de contribuição](CONTRIBUTING.md) antes de submeter um pull request.
+
+## 📄 Licença
+
+Este projeto está licenciado sob a [MIT License](LICENSE).
